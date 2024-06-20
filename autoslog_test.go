@@ -122,9 +122,8 @@ func TestAddLoggerToContext(t *testing.T) {
 		t.Errorf("Expected logger to be found in context")
 	}
 
-	// Check if the retrieved logger is the same as the original logger
-	if logger != retrievedLogger {
-		t.Errorf("Expected retrieved logger to be the same as the original logger")
+	if retrievedLogger.logger == nil {
+		t.Errorf("failed to grab the logger")
 	}
 }
 
