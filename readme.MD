@@ -1,4 +1,10 @@
 # Autoslog
+
+[![Build Status](https://github.com/percybolmer/autoslog/actions/workflows/go.yml/badge.svg)](https://github.com/percybolmer/autoslog/actions/workflows/go.yml)
+[![Test Status](https://github.com/percybolmer/autoslog/actions/workflows/go.yml/badge.svg)](https://github.com/percybolmer/autoslog/actions/workflows/go.yml)
+[![Work in Progress](https://img.shields.io/badge/status-work%20in%20progress-orange)](https://github.com/percybolmer/autoslog)
+
+
 Autoslog is a library used to help developers easily start using `Tracing` and `Structured logs`
 
 It will help by having being a strongly opinionated library that sets best practices for
