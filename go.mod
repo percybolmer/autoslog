@@ -1,6 +1,6 @@
 module github.com/percybolmer/autoslog
 
-go 1.22.3
+go 1.22
 
 require (
 	go.opentelemetry.io/otel v1.27.0
