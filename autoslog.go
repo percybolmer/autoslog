@@ -5,21 +5,16 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"time"
 )
 
 const (
 	TEXT_HANDLER = iota
 	JSON_HANDLER
 )
-const (
-	CTX_SPAN_NAME context_key = "span_name"
-	LOGGER_KEY    context_key = "logger"
-)
-
-type context_key string
 
 type Logger struct {
-	logger     *slog.Logger
+	handler    slog.Handler
 	middleware []MiddlewareFunc
 	ctx        context.Context
 }
@@ -40,16 +35,11 @@ func NewLogger(output io.Writer, handler int, defaultAttributes []slog.Attr) Log
 	default:
 		hand = slog.NewJSONHandler(output, &slog.HandlerOptions{}).WithAttrs(defaultAttributes)
 	}
-	return Logger{logger: slog.New(hand)}
+	return Logger{handler: hand}
 }
 
-// NewLoggerWithHandler is a wrapper to allow custom Handlers
-func NewLoggerWithHandler(handler slog.Handler) Logger {
-	return Logger{logger: slog.New(handler)}
-}
-
-// With is used to add a middleware to a logger
-func (l Logger) With(mw MiddlewareFunc) Logger {
+// WithMiddleware is used to add a middleware to a logger
+func (l Logger) WithMiddleware(mw MiddlewareFunc) Logger {
 	l.middleware = append(l.middleware, mw)
 	return l
 }
@@ -69,46 +59,65 @@ func (l Logger) WithSpan(span string) Logger {
 	return l
 }
 
-// Info is used to print Info logs, will also trigger Middlewares
-func (l Logger) Info(msg string, args ...any) {
+func (l Logger) Enabled(ctx context.Context, level slog.Level) bool {
+	return l.handler.Enabled(ctx, level)
+}
+
+func (l *Logger) Handle(ctx context.Context, record slog.Record) error {
+	msg := record.Message
+	var attrs []slog.Attr
+	record.Attrs(func(a slog.Attr) bool {
+		attrs = append(attrs, a)
+		return true
+	})
+
 	for _, mw := range l.middleware {
-		msg, args = mw(l.ctx, msg, args...)
+		msg, attrs = mw(l.ctx, msg, attrs...)
 	}
-	l.logger.Info(msg, args...)
-}
 
-// Debug is used to print Debug logs, will also trigger Middlewares
-func (l Logger) Debug(msg string, args ...any) {
-	for _, mw := range l.middleware {
-		msg, args = mw(l.ctx, msg, args...)
+	newRecord := slog.NewRecord(record.Time, record.Level, msg, record.PC)
+	for _, attr := range attrs {
+		newRecord.AddAttrs(attr)
 	}
-	l.logger.Debug(msg, args...)
+
+	return l.handler.Handle(ctx, newRecord)
 }
 
-// Warn is used to print Warn logs, will also trigger Middlewares
-func (l Logger) Warn(msg string, args ...any) {
-	for _, mw := range l.middleware {
-		msg, args = mw(l.ctx, msg, args...)
+// log is a generic log func that simply logs the message
+func (l Logger) log(level slog.Level, msg string, attrs ...slog.Attr) {
+	record := slog.NewRecord(time.Now(), level, msg, 0)
+	record.AddAttrs(attrs...)
+	l.Handle(l.ctx, record)
+}
+
+// Logging methods for different levels using the generic log method
+func (l Logger) Info(msg string, attrs ...slog.Attr) {
+	l.log(slog.LevelInfo, msg, attrs...)
+}
+
+func (l Logger) Debug(msg string, attrs ...slog.Attr) {
+	l.log(slog.LevelDebug, msg, attrs...)
+}
+
+func (l Logger) Warn(msg string, attrs ...slog.Attr) {
+	l.log(slog.LevelWarn, msg, attrs...)
+}
+
+func (l Logger) Error(msg string, err error, attrs ...slog.Attr) {
+	attrs = append(attrs, slog.Any("error", err))
+	l.log(slog.LevelError, msg, attrs...)
+}
+
+func (l Logger) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &Logger{
+		handler: l.handler.WithAttrs(attrs),
+		ctx:     l.ctx,
 	}
-	l.logger.Warn(msg, args...)
 }
 
-// Error will print a error log message, will add the "error" attribute with the err msg
-func (l Logger) Error(msg string, err error, args ...any) {
-	for _, mw := range l.middleware {
-		msg, args = mw(l.ctx, msg, args...)
+func (l Logger) WithGroup(name string) slog.Handler {
+	return &Logger{
+		handler: l.handler.WithGroup(name),
+		ctx:     l.ctx,
 	}
-	args = append(args, "error", err)
-	l.logger.Error(msg, args...)
-}
-
-// AddLoggerToContext adds the logger to the provided context
-func AddLoggerToContext(ctx context.Context, logger Logger) context.Context {
-	return context.WithValue(ctx, LOGGER_KEY, logger)
-}
-
-// FromContext retrieves the logger from the provided context
-func FromContext(ctx context.Context) (Logger, bool) {
-	logger, ok := ctx.Value(LOGGER_KEY).(Logger)
-	return logger, ok
 }

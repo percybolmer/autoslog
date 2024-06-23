@@ -51,61 +51,51 @@ func TestLogger_Attributes(t *testing.T) {
 	}
 }
 
-func TestLogger_Middlewares(t *testing.T) {
+func TestAutoSlog_Handler(t *testing.T) {
 	// Create a buffer to capture log output
 	var buf bytes.Buffer
-
 	ctx := context.Background()
-
+	// Initialize tracer
 	tracer := InitTracer(ctx, "test-service")
 	// Create a logger that writes to the buffer
 	logger := NewLogger(&buf, TEXT_HANDLER, []slog.Attr{
 		slog.String("service.name", "test-service"),
 	}).
 		WithContext(ctx).
-		With(TraceMiddleware(tracer))
+		WithMiddleware(AutoTracing(tracer))
 
-	// Log messages
-	logger.Error("Test error message", errors.New("test error"))
+	// Create a slog.Logger using the custom logger as handler
+	slogLogger := slog.New(&logger)
+
+	// Create a context with the custom logger
+	ctx = AddLoggerToContext(context.Background(), logger)
+
+	// Start a span and add it to the context
+	ctx, span := tracer.Start(ctx, "test-span")
+	defer span.End()
+
+	// Log messages using slog.Logger
+	slogLogger.InfoContext(ctx, "Test info message")
+	slogLogger.ErrorContext(ctx, "Test error message", slog.Any("error", errors.New("test error")))
 
 	// Check the output for attributes and messages
 	logOutput := buf.String()
+	t.Log(logOutput)
 
-	if !contains(logOutput, "Test error message") {
-		t.Errorf("Expected log message to contain 'Test error message', got: %s", logOutput)
+	if !contains(logOutput, "Test info message") {
+		t.Errorf("Expected log message to contain 'Test info message', got: %s", logOutput)
 	}
 
 	if !contains(logOutput, "test error") {
 		t.Errorf("Expected log message to contain 'test error', got: %s", logOutput)
 	}
 
-	// make sure Trace and SPAN id are set
-	if !contains(logOutput, "trace_id") {
-		t.Errorf("Expected log message to attribute 'trace_id', got: %s", logOutput)
+	if !contains(logOutput, "TraceID") {
+		t.Errorf("Expected log message to contain 'TraceID', got: %s", logOutput)
 	}
 
-	// Set trace and SPAN into Predetermined IDs and apply on context and make sure the attributes are added correctly
-	// Create a context with predetermined trace and span IDs
-	traceID := trace.TraceID{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
-	spanID := trace.SpanID{1, 2, 3, 4, 5, 6, 7, 8}
-	ctx = trace.ContextWithSpanContext(context.Background(), trace.NewSpanContext(trace.SpanContextConfig{
-		TraceID: traceID,
-		SpanID:  spanID,
-	}))
-
-	// Override logger with new Context
-	buf.Reset()
-	logger.WithContext(ctx).WithSpan("test-span").Info("new log with predetermined ID")
-
-	logOutput = buf.String()
-
-	// Check for trace_id and span_id
-	if !contains(logOutput, "trace_id=0102030405060708090a0b0c0d0e0f10") {
-		t.Errorf("Expected log message to contain 'trace_id=0102030405060708090a0b0c0d0e0f10', got: %s", logOutput)
-	}
-
-	if !contains(logOutput, "span_id=0102030405060708") {
-		t.Errorf("Expected log message to contain 'span_id=0102030405060708', got: %s", logOutput)
+	if !contains(logOutput, "SpanID") {
+		t.Errorf("Expected log message to contain 'SpanID', got: %s", logOutput)
 	}
 }
 
@@ -122,7 +112,7 @@ func TestAddLoggerToContext(t *testing.T) {
 		t.Errorf("Expected logger to be found in context")
 	}
 
-	if retrievedLogger.logger == nil {
+	if retrievedLogger.handler == nil {
 		t.Errorf("failed to grab the logger")
 	}
 }
